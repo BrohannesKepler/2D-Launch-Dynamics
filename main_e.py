@@ -34,7 +34,7 @@ class Stage():
         self.M = self.Ms + self.Mf + self.Mp
         
         
-    def GetDrag(self, h, V):
+    def GetDrag(self, h, V, vx, vy):
         """ Function to compute the drag force, modelled on an
             Atlas V launch vehicle as a function of Mach no."""
 
@@ -62,58 +62,83 @@ class Stage():
         elif M > 10:
             Cd = 0.255
             
-        D = 0.5 * rho * V**2 * self.A * Cd
-
-        return D
+        Dx = 0.5 * rho * vx * V * self.A * Cd
+        Dy = 0.5 * rho * vy * V * self.A * Cd
+        
+        return (Dx, Dy)
 
 def EqOfM(STATE, t, stages):
     
-    
-     """This function defines the 2D cartesian equations of motion 
-     for the launch vehicle."""
+    """This function defines the 2D cartesian equations of motion 
+    for the launch vehicle."""
         
-     # DECLARE CONSTANTS
-     mu = 3.986E14
-
+    # DECLARE CONSTANTS
+    mu = 3.986E14
+    Re = 6378e3
     # PARSE STATE VARIABLES FOR USE 
 
-     rx = STATE[0]
-     ry = STATE[1]
-     vx = STATE[2]
-     vy = STATE[3]
+    rx = STATE[0]
+    ry = STATE[1]
+    vx = STATE[2]
+    vy = STATE[3]
      
-     R = (rx**2 + ry**2)**0.5
-     V = (vx**2 + vy**2)**0.5
+    R = (rx**2 + ry**2)**0.5
+    V = (vx**2 + vy**2)**0.5
+    h = R - Re
+    gx = -mu * rx/(rx**2 + ry**2)**1.5
+    gy = -mu * ry/(rx**2 + ry**2)**1.5
      
-     gx = -mu * rx/(rx**2 + ry**2)**1.5
-     gy = -mu * ry/(rx**2 + ry**2)**1.5
+    #Setup equations
+    F9S1 = stages[0]
+    F9S2 = stages[1]
      
-     #Setup equations
-     F9S1 = stages[0]
-     F9S2 = stages[1]
-     
-
-     if t <= F9S1.tb:    
-         M = F9S1.M - (F9S1.mdot*t)   
-     elif t > F9S1.tb:
-         M = F9S2.M - (F9S2.mdot*(t-F9S1.tb))
-     
-
-     Tx = 0
-     Ty = F9S1.Thrust
-     Dx = 0
-     Dy = F9S1.GetDrag(R - 6378e3, V)
-     print(t, M)
-     rx = vx
-     ry = vy
+    TT = 0
+    # MASS & THRUST FOR STAGES
+    if t <= F9S1.tb:    
+        M = F9S1.M - (F9S1.mdot*t)
+        TT = F9S1.Thrust
+    elif t > F9S1.tb:
+        M = F9S2.M - (F9S2.mdot*(t-F9S1.tb))
+        TT = F9S2.Thrust
     
-     vx = Tx/M - Dx/M + gx
-     vy = Ty/M - Dy/M + gy
+    phi = np.arctan2(vy, vx)
+    psi = np.deg2rad(90)
+    kick = np.deg2rad(83)
+
+    # INITIATE GRAVITY TURN 
+    if t < F9S1.tb:
+        if h > 100:
+            if phi > kick:
+                psi = np.deg2rad(87)
+            elif phi <= kick:
+                psi = phi
+        
+    Tx = TT * np.cos(psi)
+    Ty = TT * np.sin(psi)
+    
+    D = F9S1.GetDrag(R - 6378e3, V, vx, vy)
+    
+    Dx = D[0]
+    Dy = D[1]
+    
+    # STATE EQUATIONS
+    rx = vx
+    ry = vy
+    
+    vx = Tx/M - Dx/M + gx
+    vy = Ty/M - Dy/M + gy
+    
+    if R - Re <= 0:
+        print("Solution terminated, flight altitude less than 0")
+        #return None 
+    # VEHICLE STATE
+    
+    v_state = np.array([Tx, Ty, Dx, Dy, M, phi])
     
     #Return numpy array of the equations
-     #print("Vertical velocity: ", ry)
-     return np.array([rx, ry, vx, vy])
-        
+    #print("Vertical velocity: ", ry)
+    return (np.array([rx, ry, vx, vy]), v_state)
+       
 
 def euler(STATE0, t0, dt, Tf, stages):
     
@@ -130,13 +155,15 @@ def euler(STATE0, t0, dt, Tf, stages):
     Vx = np.zeros((steps+1))    
     Vy = np.zeros((steps+1))    
     T_array = np.zeros((steps+1))
+
+    v_states = np.zeros((steps+1, 6))
     
     #Initial condition allocation
     X[0] = STATE0[0]
     Y[0] = STATE0[1]
     Vx[0] = STATE0[2]
     Vy[0] = STATE0[3]
-    
+    #v_states[0, :] = 0
     t = t0
     n = 0
     
@@ -147,11 +174,11 @@ def euler(STATE0, t0, dt, Tf, stages):
         STATE = np.array([X[n], Y[n], Vx[n], Vy[n]])
         S = EqOfM(STATE, t, stages)
         
-        X[n+1] = X[n] + dt * S[0]
-        Y[n+1] = Y[n] + dt * S[1]
-        Vx[n+1] = Vx[n] + dt * S[2]
-        Vy[n+1] = Vy[n] + dt * S[3]
-        
+        X[n + 1] = X[n] + dt * S[0][0]
+        Y[n + 1] = Y[n] + dt * S[0][1]
+        Vx[n + 1] = Vx[n] + dt * S[0][2]
+        Vy[n + 1] = Vy[n] + dt * S[0][3]
+        v_states[n, :] = S[1][:]
         t = t + dt
         T_array[n + 1] = t            
         n = n + 1
@@ -164,7 +191,7 @@ def euler(STATE0, t0, dt, Tf, stages):
     STATEF[:, 3] = Vx
     STATEF[:, 4] = Vy
 
-    return STATEF
+    return (STATEF, v_states)
     
 def main():
     
@@ -201,22 +228,49 @@ def main():
     
     print("End")
     
-
-    t = sol[:, 0]
-    rx = sol[:, 1]
-    ry = sol[:, 2]
-    vx = sol[:, 3]
-    vy = sol[:, 4]
+    # PARSE SOLUTION ARRAYS FOR POST PROCESSING 
+    t = sol[0][:, 0]
+    rx = sol[0][:, 1]
+    ry = sol[0][:, 2]
+    vx = sol[0][:, 3]
+    vy = sol[0][:, 4]
+    
+    v_states = sol[1]
+    
+    Tx = v_states[:,0]
+    Ty = v_states[:,1]
+    Dx = v_states[:,2]
+    Dy = v_states[:,3]
+    M = v_states[:,4]
+    phi = v_states[:,5]*180/np.pi
+    
+    T = np.sqrt(Tx**2 + Ty**2)
+    D = np.sqrt(Dx**2 + Dy**2)
     
     h = (rx**2 + ry**2)**0.5 - 6378e3
     
     
     plt.figure()
-    plt.plot(t, vy)
-    plt.figure()
-    plt.plot(t, h)
-    plt.title("Altitude")
+    plt.plot(rx, h)
+    plt.title("Trajectory")
+    #plt.figure()
+    #plt.plot(t, h)
+    #plt.title("Altitude")
     
+    plt.figure()
+    plt.subplot(2,2,1)
+    plt.plot(t, T)
+    plt.ylabel('Thrust [N]')
+    plt.subplot(2,2,2)
+    plt.plot(t, D)
+    plt.ylabel('Drag [N]')
+    plt.subplot(2,2,3)
+    plt.plot(t, phi)
+    plt.ylabel('Flight path angle $\phi$ [deg]')
+    plt.subplot(2,2,4)
+    plt.plot(t, M)
+    plt.ylabel('Mass [kg]')
+    plt.tight_layout()
     
     #plt.plot(T_array, vy, t2, vy2, 'rx')
     
