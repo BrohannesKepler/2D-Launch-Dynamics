@@ -101,18 +101,22 @@ def EqOfM(STATE, t, stages):
         M = F9S2.M - (F9S2.mdot*(t-F9S1.tb))
         TT = F9S2.Thrust
     
+    # COMPUTE FLIGHT PATH ANGLE, ASSIGN VARIABLE FOR THRUST ANGLE 
+    # MEASURED ANTICLOCKWISE FROM X AXIS 
     phi = np.arctan2(vy, vx)
     psi = np.deg2rad(90)
     kick = np.deg2rad(83)
 
     # INITIATE GRAVITY TURN 
-    if t < F9S1.tb:
+    if t < F9S1.tb+300:
         if h > 100:
             if phi > kick:
                 psi = np.deg2rad(87)
             elif phi <= kick:
                 psi = phi
-        
+    
+    # CALL IGM ROUTINE: 
+    
     Tx = TT * np.cos(psi)
     Ty = TT * np.sin(psi)
     
@@ -128,8 +132,9 @@ def EqOfM(STATE, t, stages):
     vx = Tx/M - Dx/M + gx
     vy = Ty/M - Dy/M + gy
     
-    if R - Re <= 0:
-        print("Solution terminated, flight altitude less than 0")
+    if t > 0:
+        if R - Re <= 0:
+            print("Solution terminated, flight altitude less than 0")
         #return None 
     # VEHICLE STATE
     
@@ -220,13 +225,12 @@ def main():
     
     #Integration time:
     
-    Tf = F9S1.tb
+    Tf = F9S1.tb+300
     Stages = [F9S1, F9S2]
 
     # CALL INTEGRATION ROUTINE 
     sol = euler(STATE_0, 0, 0.5, Tf, Stages)
     
-    print("End")
     
     # PARSE SOLUTION ARRAYS FOR POST PROCESSING 
     t = sol[0][:, 0]
@@ -249,13 +253,16 @@ def main():
     
     h = (rx**2 + ry**2)**0.5 - 6378e3
     
-    
+    print("Terminal altitude [km]: ", h[-1]/1E3)
+    print("Terminal velocity: [km/s]: ", (vx[-1]**2+vy[-1]**2)**0.5)
+    print("End")
+
     plt.figure()
     plt.plot(rx, h)
     plt.title("Trajectory")
-    #plt.figure()
-    #plt.plot(t, h)
-    #plt.title("Altitude")
+    plt.figure()
+    plt.plot(t, h)
+    plt.title("Altitude")
     
     plt.figure()
     plt.subplot(2,2,1)
