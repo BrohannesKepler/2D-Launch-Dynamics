@@ -10,6 +10,7 @@ import numpy as np
 from scipy.integrate import odeint
 import matplotlib.pyplot as plt
 import atmosphere
+import IGM
 
 class Stage():
     
@@ -105,18 +106,20 @@ def EqOfM(STATE, t, stages):
     # MEASURED ANTICLOCKWISE FROM X AXIS 
     phi = np.arctan2(vy, vx)
     psi = np.deg2rad(90)
-    kick = np.deg2rad(83)
+    kick = np.deg2rad(82)
 
     # INITIATE GRAVITY TURN 
     if t < F9S1.tb+300:
         if h > 100:
             if phi > kick:
-                psi = np.deg2rad(87)
+                psi = np.deg2rad(86.5)
             elif phi <= kick:
                 psi = phi
     
     # CALL IGM ROUTINE: 
-    
+    if t > F9S1.tb:
+        T2, psi = IGM.main(rx, ry, vx, vy, M, F9S2, t, F9S1.tb)
+        T4 = 0
     Tx = TT * np.cos(psi)
     Ty = TT * np.sin(psi)
     
@@ -132,13 +135,13 @@ def EqOfM(STATE, t, stages):
     vx = Tx/M - Dx/M + gx
     vy = Ty/M - Dy/M + gy
     
-    if t > 0:
+    if t > 10:
         if R - Re <= 0:
             print("Solution terminated, flight altitude less than 0")
         #return None 
     # VEHICLE STATE
     
-    v_state = np.array([Tx, Ty, Dx, Dy, M, phi])
+    v_state = np.array([Tx, Ty, Dx, Dy, M, phi, psi])
     
     #Return numpy array of the equations
     #print("Vertical velocity: ", ry)
@@ -161,7 +164,7 @@ def euler(STATE0, t0, dt, Tf, stages):
     Vy = np.zeros((steps+1))    
     T_array = np.zeros((steps+1))
 
-    v_states = np.zeros((steps+1, 6))
+    v_states = np.zeros((steps+1, 7))
     
     #Initial condition allocation
     X[0] = STATE0[0]
@@ -225,7 +228,7 @@ def main():
     
     #Integration time:
     
-    Tf = F9S1.tb+300
+    Tf = F9S1.tb + 30
     Stages = [F9S1, F9S2]
 
     # CALL INTEGRATION ROUTINE 
@@ -241,29 +244,37 @@ def main():
     
     v_states = sol[1]
     
-    Tx = v_states[:,0]
-    Ty = v_states[:,1]
-    Dx = v_states[:,2]
-    Dy = v_states[:,3]
-    M = v_states[:,4]
-    phi = v_states[:,5]*180/np.pi
+    Tx = v_states[:, 0]
+    Ty = v_states[:, 1]
+    Dx = v_states[:, 2]
+    Dy = v_states[:, 3]
+    M = v_states[:, 4]
+    phi = v_states[:, 5]*180/np.pi
+    psi = v_states[:, 6]*180/np.pi
     
     T = np.sqrt(Tx**2 + Ty**2)
     D = np.sqrt(Dx**2 + Dy**2)
     
     h = (rx**2 + ry**2)**0.5 - 6378e3
+    V = (vx**2 + vy**2)**0.5
     
     print("Terminal altitude [km]: ", h[-1]/1E3)
     print("Terminal velocity: [km/s]: ", (vx[-1]**2+vy[-1]**2)**0.5)
     print("End")
 
     plt.figure()
-    plt.plot(rx, h)
+    plt.plot(rx/1e3, h/1e3)
+    plt.xlabel("Downrange [km]")
+    plt.ylabel("Altitude [km]")
     plt.title("Trajectory")
+    """
     plt.figure()
-    plt.plot(t, h)
+    plt.plot(t, h/1e3)
     plt.title("Altitude")
-    
+    plt.figure()
+    plt.plot(t, V, 'b')
+    plt.title("velocity")
+    """
     plt.figure()
     plt.subplot(2,2,1)
     plt.plot(t, T)
@@ -272,7 +283,7 @@ def main():
     plt.plot(t, D)
     plt.ylabel('Drag [N]')
     plt.subplot(2,2,3)
-    plt.plot(t, phi)
+    plt.plot(t, phi, t, psi, 'k--')
     plt.ylabel('Flight path angle $\phi$ [deg]')
     plt.subplot(2,2,4)
     plt.plot(t, M)
