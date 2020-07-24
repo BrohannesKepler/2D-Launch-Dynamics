@@ -14,8 +14,9 @@ import IGM
 
 class Stage():
     
-    """ Define a vehicle class that specifies the number of stages, mass of each 
-        stage, thrust, specific impulse, drag expression
+    """ 
+    Define a vehicle class that specifies the number of stages, mass of each 
+    stage, thrust, specific impulse, drag expression
         
     """
     def __init__(self, Name, Thrust, Cd, A, Isp, Ms, Mf, Mp):
@@ -76,13 +77,15 @@ def EqOfM(STATE, t, stages):
     # DECLARE CONSTANTS
     mu = 3.986E14
     Re = 6378e3
+    
     # PARSE STATE VARIABLES FOR USE 
-
     rx = STATE[0]
     ry = STATE[1]
     vx = STATE[2]
     vy = STATE[3]
-     
+    T2 = STATE[4]
+    IGMState = STATE[5]
+    
     R = (rx**2 + ry**2)**0.5
     V = (vx**2 + vy**2)**0.5
     h = R - Re
@@ -106,46 +109,54 @@ def EqOfM(STATE, t, stages):
     # MEASURED ANTICLOCKWISE FROM X AXIS 
     phi = np.arctan2(vy, vx)
     psi = np.deg2rad(90)
-    kick = np.deg2rad(82)
+    kick = np.deg2rad(88)
+    
+    
+    # KICK 87 PSI 88.5 FOR S1 TERMINAL STATE SIMILAR TO IGM PAPER 
 
     # INITIATE GRAVITY TURN 
-    if t < F9S1.tb+300:
+    if t < F9S1.tb:
         if h > 100:
             if phi > kick:
-                psi = np.deg2rad(86.5)
+                psi = np.deg2rad(89)
             elif phi <= kick:
                 psi = phi
     
     # CALL IGM ROUTINE: 
     if t > F9S1.tb:
-        T2, psi = IGM.main(rx, ry, vx, vy, M, F9S2, t, F9S1.tb)
+        T2, psi, IGMState = IGM.main(rx, ry, vx, vy, M, F9S2, t, F9S1.tb, T2, IGMState)
         T4 = 0
+        #print(psi)
+    
+    # CHECK TIME TO GO & CUTOFF:
+        
+    if T2 < 0.1:
+        TT = 0
+    #print('Thrust: ', TT)
+    # VEHICLE FORCES: 
     Tx = TT * np.cos(psi)
     Ty = TT * np.sin(psi)
-    
     D = F9S1.GetDrag(R - 6378e3, V, vx, vy)
-    
     Dx = D[0]
     Dy = D[1]
     
     # STATE EQUATIONS
     rx = vx
     ry = vy
-    
     vx = Tx/M - Dx/M + gx
     vy = Ty/M - Dy/M + gy
     
+    # CRASH DETECTION 
     if t > 10:
         if R - Re <= 0:
             print("Solution terminated, flight altitude less than 0")
         #return None 
+            
     # VEHICLE STATE
-    
     v_state = np.array([Tx, Ty, Dx, Dy, M, phi, psi])
     
     #Return numpy array of the equations
-    #print("Vertical velocity: ", ry)
-    return (np.array([rx, ry, vx, vy]), v_state)
+    return (np.array([rx, ry, vx, vy, T2, IGMState]), v_state)
        
 
 def euler(STATE0, t0, dt, Tf, stages):
@@ -163,7 +174,9 @@ def euler(STATE0, t0, dt, Tf, stages):
     Vx = np.zeros((steps+1))    
     Vy = np.zeros((steps+1))    
     T_array = np.zeros((steps+1))
-
+    
+    T2_array = np.zeros((steps+1))
+    IGM_array = np.zeros((steps+1, 12))
     v_states = np.zeros((steps+1, 7))
     
     #Initial condition allocation
@@ -171,7 +184,9 @@ def euler(STATE0, t0, dt, Tf, stages):
     Y[0] = STATE0[1]
     Vx[0] = STATE0[2]
     Vy[0] = STATE0[3]
+    T2_array[0] = STATE0[4]
     #v_states[0, :] = 0
+    IGM_array[0, :] = STATE0[5]
     t = t0
     n = 0
     
@@ -179,14 +194,17 @@ def euler(STATE0, t0, dt, Tf, stages):
     
     while t < Tf:
       
-        STATE = np.array([X[n], Y[n], Vx[n], Vy[n]])
+        STATE = np.array([X[n], Y[n], Vx[n], Vy[n], T2_array[n], IGM_array[n]])
         S = EqOfM(STATE, t, stages)
         
         X[n + 1] = X[n] + dt * S[0][0]
         Y[n + 1] = Y[n] + dt * S[0][1]
         Vx[n + 1] = Vx[n] + dt * S[0][2]
         Vy[n + 1] = Vy[n] + dt * S[0][3]
+        T2_array[n + 1] = S[0][4]
         v_states[n, :] = S[1][:]
+        IGM_array[n, :] = S[0][5]
+        
         t = t + dt
         T_array[n + 1] = t            
         n = n + 1
@@ -199,7 +217,7 @@ def euler(STATE0, t0, dt, Tf, stages):
     STATEF[:, 3] = Vx
     STATEF[:, 4] = Vy
 
-    return (STATEF, v_states)
+    return (STATEF, v_states, IGM_array)
     
 def main():
     
@@ -224,15 +242,21 @@ def main():
     y0 = 6378e3
     vx0 = 0
     vy0 = 0
-    STATE_0 = np.array([x0, y0, vx0, vy0])
+    
+    # IGM INITIAL VALUES (Any arbitrary value to initialise routine, not used)
+    T20 = 400
+    
+    IGMState = np.zeros(12)
+    
+    STATE_0 = np.array([x0, y0, vx0, vy0, T20, IGMState])
     
     #Integration time:
     
-    Tf = F9S1.tb + 30
+    Tf = F9S1.tb + 350
     Stages = [F9S1, F9S2]
 
     # CALL INTEGRATION ROUTINE 
-    sol = euler(STATE_0, 0, 0.5, Tf, Stages)
+    sol = euler(STATE_0, 0, 0.1, Tf, Stages)
     
     
     # PARSE SOLUTION ARRAYS FOR POST PROCESSING 
@@ -241,7 +265,7 @@ def main():
     ry = sol[0][:, 2]
     vx = sol[0][:, 3]
     vy = sol[0][:, 4]
-    
+        
     v_states = sol[1]
     
     Tx = v_states[:, 0]
@@ -254,13 +278,33 @@ def main():
     
     T = np.sqrt(Tx**2 + Ty**2)
     D = np.sqrt(Dx**2 + Dy**2)
-    
     h = (rx**2 + ry**2)**0.5 - 6378e3
     V = (vx**2 + vy**2)**0.5
     
+    IGMstates = sol[2]
+    
+    A1 = IGMstates[:, 0]
+    B1 = IGMstates[:, 1]
+    A2 = IGMstates[:, 2]
+    B2 = IGMstates[:, 3]
+    C2 = IGMstates[:, 4]
+    K1 = IGMstates[:, 5]
+    K2 = IGMstates[:, 6]
+    X_xi = IGMstates[:, 7]*180/np.pi
+    dxi = IGMstates[:, 8]
+    deta = IGMstates[:, 9]
+    T2 = IGMstates[:, 10]
+    X = IGMstates[:, 11]
+
     print("Terminal altitude [km]: ", h[-1]/1E3)
     print("Terminal velocity: [km/s]: ", (vx[-1]**2+vy[-1]**2)**0.5)
+    print("Terminal flight path angle [deg]: ", phi[-2])
+    print("vx [m/s]: ", vx[-1])
+    print("vy [m/s]: ", vy[-1])
+    
     print("End")
+
+    # PLOTTING AND VISUALISATION 
 
     plt.figure()
     plt.plot(rx/1e3, h/1e3)
@@ -274,6 +318,7 @@ def main():
     plt.figure()
     plt.plot(t, V, 'b')
     plt.title("velocity")
+    """
     """
     plt.figure()
     plt.subplot(2,2,1)
@@ -289,9 +334,55 @@ def main():
     plt.plot(t, M)
     plt.ylabel('Mass [kg]')
     plt.tight_layout()
+    """
+    plt.figure()
+    plt.plot(t, phi, label='Flight path')
+    plt.plot(t, psi, 'k--', label='Pitch')
+    #plt.plot(t, X_xi, 'r--', label='IGM Pitch')
+    plt.ylabel('Angle [deg]')
+    plt.legend()
     
+    # IGM DEBUG PLOTS:
+    """
+    plt.figure()
+    plt.subplot(2,2,1)
+    plt.plot(t, A1)
+    plt.ylabel('A1')
+    plt.subplot(2,2,2)
+    plt.plot(t, B1)
+    plt.ylabel('B1')
+    plt.subplot(2,2,3)
+    plt.plot(t, A2)
+    plt.ylabel('A2')
+    plt.subplot(2,2,4)
+    plt.plot(t, B2)
+    plt.ylabel('B2')
+    plt.tight_layout()
+    
+    plt.figure()
+    plt.subplot(2,1,1)
+    plt.plot(t, K1)
+    plt.ylabel('K1')
+    plt.subplot(2,1,2)
+    plt.plot(t, K2)
+    plt.ylabel('K2')
+    
+    """
+    plt.figure()
+    plt.subplot(2,1,1)
+    plt.plot(t, deta)
+    plt.ylabel('$\delta$$\eta$')
+    plt.subplot(2,1,2)
+    plt.plot(t, dxi)
+    plt.ylabel('$\delta$$\chi$')
+    """
+
+    plt.figure()
+    plt.plot(t, T2)
+    #plt.plot(t, dT2)
+    plt.title("Time to go")
     #plt.plot(T_array, vy, t2, vy2, 'rx')
-    
+    """
     
     
 if __name__ == "__main__":
