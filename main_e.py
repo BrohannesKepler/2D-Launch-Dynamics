@@ -11,6 +11,7 @@ from scipy.integrate import odeint
 import matplotlib.pyplot as plt
 import atmosphere
 import IGM
+import GetOrbState
 
 class Stage():
     
@@ -125,13 +126,14 @@ def EqOfM(STATE, t, stages):
     # CALL IGM ROUTINE: 
     if t > F9S1.tb:
         T2, psi, IGMState = IGM.main(rx, ry, vx, vy, M, F9S2, t, F9S1.tb, T2, IGMState)
+        psi = np.arctan(psi)
         T4 = 0
-        #print(psi)
     
     # CHECK TIME TO GO & CUTOFF:
         
-    if T2 < 0.1:
+    if T2 < 0.01:
         TT = 0
+        return None
     #print('Thrust: ', TT)
     # VEHICLE FORCES: 
     Tx = TT * np.cos(psi)
@@ -197,13 +199,20 @@ def euler(STATE0, t0, dt, Tf, stages):
         STATE = np.array([X[n], Y[n], Vx[n], Vy[n], T2_array[n], IGM_array[n]])
         S = EqOfM(STATE, t, stages)
         
+        
+        # TERMINATE INTEGRATION @ CUTOFF
+        
+        if S == None:
+            break
+        
+        
         X[n + 1] = X[n] + dt * S[0][0]
         Y[n + 1] = Y[n] + dt * S[0][1]
         Vx[n + 1] = Vx[n] + dt * S[0][2]
         Vy[n + 1] = Vy[n] + dt * S[0][3]
         T2_array[n + 1] = S[0][4]
         v_states[n, :] = S[1][:]
-        IGM_array[n, :] = S[0][5]
+        IGM_array[n+1, :] = S[0][5]
         
         t = t + dt
         T_array[n + 1] = t            
@@ -217,7 +226,7 @@ def euler(STATE0, t0, dt, Tf, stages):
     STATEF[:, 3] = Vx
     STATEF[:, 4] = Vy
 
-    return (STATEF, v_states, IGM_array)
+    return (STATEF[0:n, :], v_states[0:n, :], IGM_array[0:n, :])
     
 def main():
     
@@ -252,7 +261,7 @@ def main():
     
     #Integration time:
     
-    Tf = F9S1.tb + 350
+    Tf = F9S1.tb + 5500
     Stages = [F9S1, F9S2]
 
     # CALL INTEGRATION ROUTINE 
@@ -291,34 +300,46 @@ def main():
     K1 = IGMstates[:, 5]
     K2 = IGMstates[:, 6]
     X_xi = IGMstates[:, 7]*180/np.pi
-    dxi = IGMstates[:, 8]
-    deta = IGMstates[:, 9]
+    xi = IGMstates[:, 8]
+    eta = IGMstates[:, 9]
     T2 = IGMstates[:, 10]
     X = IGMstates[:, 11]
-
+    
+    # N/A: NOT IN CORRECT REFERENCE FRAME TO DETERMINE ORBITAL MOMENTUM
+    a, e, nu = GetOrbState.main(rx[-1], ry[-1], xi[-1], eta[-1])
+    rp = a*(1-e)
+    ra = a*(1+e)
     print("Terminal altitude [km]: ", h[-1]/1E3)
     print("Terminal velocity: [km/s]: ", (vx[-1]**2+vy[-1]**2)**0.5)
-    print("Terminal flight path angle [deg]: ", phi[-2])
-    print("vx [m/s]: ", vx[-1])
-    print("vy [m/s]: ", vy[-1])
+    print("Terminal flight path angle [deg]: ", np.arctan(eta[-1]/xi[-1])*180/np.pi)
+    #print("vx [m/s]: ", vx[-1])
+    #print("vy [m/s]: ", vy[-1])
+    print("\n")
     
+    print("Insertion orbit parameters: ")
+    print("Eccentricity: ", e)
+    print("True anomaly: ", nu*180/np.pi)
+    print("Perigee: ", rp-y0)
+    print("Apogee: ", ra-y0)
     print("End")
-
+    
     # PLOTTING AND VISUALISATION 
 
     plt.figure()
-    plt.plot(rx/1e3, h/1e3)
+    plt.plot(rx/1e3, h/1e3,'k')
     plt.xlabel("Downrange [km]")
     plt.ylabel("Altitude [km]")
     plt.title("Trajectory")
-    """
+    plt.gca().set_aspect('equal', adjustable='box')    
+
+    
     plt.figure()
-    plt.plot(t, h/1e3)
+    plt.plot(t, h/1e3,'k',linewidth=1)
     plt.title("Altitude")
     plt.figure()
-    plt.plot(t, V, 'b')
+    plt.plot(t, V, 'b',linewidth=1)
     plt.title("velocity")
-    """
+    
     """
     plt.figure()
     plt.subplot(2,2,1)
@@ -336,9 +357,8 @@ def main():
     plt.tight_layout()
     """
     plt.figure()
-    plt.plot(t, phi, label='Flight path')
-    plt.plot(t, psi, 'k--', label='Pitch')
-    #plt.plot(t, X_xi, 'r--', label='IGM Pitch')
+    plt.plot(t, phi, 'b',label='Flight path', linewidth = 1)
+    plt.plot(t, psi, 'k--', label='Pitch', linewidth=1)
     plt.ylabel('Angle [deg]')
     plt.legend()
     
@@ -368,6 +388,7 @@ def main():
     plt.ylabel('K2')
     
     """
+    """
     plt.figure()
     plt.subplot(2,1,1)
     plt.plot(t, deta)
@@ -375,6 +396,7 @@ def main():
     plt.subplot(2,1,2)
     plt.plot(t, dxi)
     plt.ylabel('$\delta$$\chi$')
+    """
     """
 
     plt.figure()
@@ -384,6 +406,17 @@ def main():
     #plt.plot(T_array, vy, t2, vy2, 'rx')
     """
     
+    ## EARTH + TRAJECTORY PLOT:
+    """
+    angle = np.linspace(0, 2*np.pi, 1000)
+    
+    plt.figure()
+    xe = y0 * np.cos(angle)
+    ye = y0 * np.sin(angle)
+    
+    plt.plot(xe, ye,'b')
+    plt.plot(rx,ry,'k')
+    """
     
 if __name__ == "__main__":
 
