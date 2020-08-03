@@ -47,14 +47,7 @@ def main(rx, ry, vx, vy, M, F9S2, t, t0, T2, IGMState):
     
     ##==================== BEGIN MAIN ROUTINE ================================
     
-    
-    # CHECK TIME TO GO AND BYPASS ROUTINE IF SMALL TO AVOID INDETERMINATE SOLUTION
-    
-    if T2 < 10:
-        dbg = IGMState
-        T2 = T2 - 0.1
-        return T2, dbg[-1], dbg 
-    
+
     
     # COMPUTE T2*:
     
@@ -87,6 +80,15 @@ def main(rx, ry, vx, vy, M, F9S2, t, t0, T2, IGMState):
     # ROTATE TO GUIDANCE COORDINATES     
     pstateg = np.matmul(rot, pvec)
     vstateg = np.matmul(rot, vvec)
+    
+    # CHECK TIME TO GO AND BYPASS ROUTINE IF SMALL TO AVOID INDETERMINATE SOLUTION
+
+    if T2 < 7:
+        dbg = IGMState
+        T2 = T2 - 0.1
+        dbg[8] = vstateg[0]
+        dbg[9] = vstateg[1]
+        return T2, dbg[-1], dbg    
     
     # VELOCITY DEFICIENCY:
     
@@ -134,7 +136,7 @@ def main(rx, ry, vx, vy, M, F9S2, t, t0, T2, IGMState):
     
     # DEBUG ARRAY
     
-    dbg = np.array([A1, B1, A2, B2, C2, K1, K2, X_xi, dxi, deta, T2, X])
+    dbg = np.array([A1, B1, A2, B2, C2, K1, K2, X_xi, vstateg[0], vstateg[1], T2, X])
     
     
     return T2, X, dbg
